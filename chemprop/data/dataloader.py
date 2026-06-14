@@ -2,15 +2,18 @@ import warnings
 
 from torch.utils.data import DataLoader
 
-from chemprop.data.collate import collate_batch, collate_multicomponent
+from chemprop.data.collate import collate_batch, collate_multicomponent, collate_multicomponent_delta
 from chemprop.data.datasets import MoleculeDataset, MulticomponentDataset, ReactionDataset
-from chemprop.data.samplers import ClassBalanceSampler, SeededSampler
+from chemprop.data.samplers import ClassBalanceSampler, SeededSampler, DeltaSampler
 
+from sklearn.preprocessing import StandardScaler
 
 def build_dataloader(
     dataset: MoleculeDataset | ReactionDataset | MulticomponentDataset,
     batch_size: int = 64,
     num_workers: int = 0,
+    delta_dataset: bool = False,
+    output_scaler: StandardScaler | None = None,
     class_balance: bool = False,
     seed: int | None = None,
     shuffle: bool = True,
@@ -36,7 +39,14 @@ def build_dataloader(
         whether to shuffle the data during sampling.
     """
 
-    if class_balance:
+    n_datapoints = len(dataset)
+    y_vals_per_batch = batch_size
+    if delta_dataset:
+        sampler = DeltaSampler(len(dataset), seed, shuffle)
+        n_datapoints = (len(dataset)**2)
+        batch_size = batch_size*2
+        y_vals_per_batch = batch_size//2
+    elif class_balance:
         sampler = ClassBalanceSampler(dataset.Y, seed, shuffle)
     elif shuffle and seed is not None:
         sampler = SeededSampler(len(dataset), seed)
@@ -44,11 +54,14 @@ def build_dataloader(
         sampler = None
 
     if isinstance(dataset, MulticomponentDataset):
-        collate_fn = collate_multicomponent
+        if delta_dataset:
+            collate_fn = lambda x: collate_multicomponent_delta(x, y_scaler=output_scaler)
+        else:
+            collate_fn = collate_multicomponent
     else:
         collate_fn = collate_batch
 
-    if len(dataset) % batch_size == 1:
+    if n_datapoints % y_vals_per_batch == 1:
         warnings.warn(
             f"Dropping last batch of size 1 to avoid issues with batch normalization \
 (dataset size = {len(dataset)}, batch_size = {batch_size})"

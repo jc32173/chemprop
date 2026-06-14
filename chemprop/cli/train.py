@@ -56,6 +56,8 @@ from chemprop.nn.transforms import GraphTransform, ScaleTransform, UnscaleTransf
 from chemprop.nn.utils import Activation
 from chemprop.utils import Factory
 
+from sklearn.preprocessing import StandardScaler
+
 logger = logging.getLogger(__name__)
 
 
@@ -463,6 +465,12 @@ def add_train_args(parser: ArgumentParser) -> ArgumentParser:
         help="Seed for PyTorch randomness (e.g., random initial weights)",
     )
 
+    parser.add_argument(
+        "--delta",
+        action="store_true",
+        help="Generate and train model on delta dataset."
+    )
+
     return parser
 
 
@@ -541,6 +549,20 @@ def validate_train_args(args):
     pass
 
 
+# Need to overwrite ScaleTransform for delta models to expand it over both
+# datapoints in the pair:
+class DeltaScaleTransform(ScaleTransform):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Double width of mean and scale:
+        mean = torch.cat([self.mean, self.mean], dim=1)
+        scale = torch.cat([self.scale, self.scale], dim=1)
+
+        self.register_buffer("mean", mean)
+        self.register_buffer("scale", scale)
+
+
 def normalize_inputs(train_dset, val_dset, args):
     multicomponent = isinstance(train_dset, MulticomponentDataset)
     num_components = train_dset.n_components if multicomponent else 1
@@ -566,7 +588,10 @@ def normalize_inputs(train_dset, val_dset, args):
             logger.info(
                 f"Descriptors: loc = {np.array2string(scaler.mean_, precision=3)}, scale = {np.array2string(scaler.scale_, precision=3)}"
             )
-            X_d_transform = ScaleTransform.from_standard_scaler(scaler)
+            if args.delta:
+                X_d_transform = DeltaScaleTransform.from_standard_scaler(scaler)
+            else:
+                X_d_transform = ScaleTransform.from_standard_scaler(scaler)
 
     if d_vf > 0 and not args.no_atom_feature_scaling:
         scaler = train_dset.normalize_inputs("V_f")
@@ -855,7 +880,7 @@ def build_table(column_headers: list[str], table_rows: list[str], title: str | N
 
 def build_datasets(args, train_data, val_data, test_data):
     """build the train/val/test datasets, where :attr:`test_data` may be None"""
-    multicomponent = len(train_data) > 1
+    multicomponent = (len(train_data) > 1) or args.delta
     if multicomponent:
         train_dsets = [
             make_dataset(data, args.rxn_mode, args.multi_hot_atom_featurizer_mode)
@@ -906,26 +931,49 @@ def build_model(
 
     X_d_transform, graph_transforms, V_d_transforms = input_transforms
     if isinstance(train_dset, MulticomponentDataset):
-        mp_blocks = [
-            mp_cls(
-                train_dset.datasets[i].featurizer.atom_fdim,
-                train_dset.datasets[i].featurizer.bond_fdim,
-                d_h=args.message_hidden_dim,
-                d_vd=(
-                    train_dset.datasets[i].d_vd
-                    if isinstance(train_dset.datasets[i], MoleculeDataset)
-                    else 0
-                ),
-                bias=args.message_bias,
-                depth=args.depth,
-                undirected=args.undirected,
-                dropout=args.dropout,
-                activation=args.activation,
-                V_d_transform=V_d_transforms[i],
-                graph_transform=graph_transforms[i],
-            )
-            for i in range(train_dset.n_components)
-        ]
+        if args.delta:
+            mp_blocks = [
+                mp_cls(
+                    train_dset.datasets[0].featurizer.atom_fdim,
+                    train_dset.datasets[0].featurizer.bond_fdim,
+                    d_h=args.message_hidden_dim,
+                    d_vd=(
+                        train_dset.datasets[0].d_vd
+                        if isinstance(train_dset.datasets[0], MoleculeDataset)
+                        else 0
+                    ),
+                    bias=args.message_bias,
+                    depth=args.depth,
+                    undirected=args.undirected,
+                    dropout=args.dropout,
+                    activation=args.activation,
+                    V_d_transform=V_d_transforms[0],
+                    graph_transform=graph_transforms[0],
+                )
+                # This shouldn't be hard coded, not always 2 (e.g. for pairs of nanoparticles)
+                for _ in range(2)
+            ]
+        else:
+            mp_blocks = [
+                mp_cls(
+                    train_dset.datasets[i].featurizer.atom_fdim,
+                    train_dset.datasets[i].featurizer.bond_fdim,
+                    d_h=args.message_hidden_dim,
+                    d_vd=(
+                        train_dset.datasets[i].d_vd
+                        if isinstance(train_dset.datasets[i], MoleculeDataset)
+                        else 0
+                    ),
+                    bias=args.message_bias,
+                    depth=args.depth,
+                    undirected=args.undirected,
+                    dropout=args.dropout,
+                    activation=args.activation,
+                    V_d_transform=V_d_transforms[i],
+                    graph_transform=graph_transforms[i],
+                )
+                for i in range(train_dset.n_components)
+            ]
         if args.mpn_shared:
             if args.reaction_columns is not None and args.smiles_columns is not None:
                 raise ArgumentError(
@@ -933,12 +981,16 @@ def build_model(
                     message="Cannot use shared MPNN with both molecule and reaction data.",
                 )
 
-        mp_block = MulticomponentMessagePassing(mp_blocks, train_dset.n_components, args.mpn_shared)
-        # NOTE(degraff): this if/else block should be handled by the init of MulticomponentMessagePassing
-        # if args.mpn_shared:
-        #     mp_block = MulticomponentMessagePassing(mp_blocks[0], n_components, args.mpn_shared)
-        # else:
-        d_xd = train_dset.datasets[0].d_xd
+        if args.delta:
+            mp_block = MulticomponentMessagePassing(mp_blocks, 2, args.mpn_shared)
+            d_xd = train_dset.datasets[0].d_xd*2
+        else:
+            mp_block = MulticomponentMessagePassing(mp_blocks, train_dset.n_components, args.mpn_shared)
+            # NOTE(degraff): this if/else block should be handled by the init of MulticomponentMessagePassing
+            # if args.mpn_shared:
+            #     mp_block = MulticomponentMessagePassing(mp_blocks[0], n_components, args.mpn_shared)
+            # else:
+            d_xd = train_dset.datasets[0].d_xd
         n_tasks = train_dset.datasets[0].Y.shape[1]
         mpnn_cls = MulticomponentMPNN
     else:
@@ -1147,7 +1199,13 @@ def evaluate_and_save_predictions(preds, test_loader, metrics, model_output_dir,
         test_dset = test_loader.dataset.datasets[0]
     else:
         test_dset = test_loader.dataset
-    targets = test_dset.Y
+
+    if args.delta:
+        targets = pd.merge(pd.DataFrame(test_dset.Y), pd.DataFrame(test_dset.Y), how='cross')
+        targets = (targets.iloc[:,1] - targets.iloc[:,0]).to_numpy().reshape(len(targets), -1)
+    else:
+        targets = test_dset.Y
+
     mask = torch.from_numpy(np.isfinite(targets))
     targets = np.nan_to_num(targets, nan=0.0)
     weights = torch.ones(len(test_dset))
@@ -1188,24 +1246,32 @@ def evaluate_and_save_predictions(preds, test_loader, metrics, model_output_dir,
                 )
 
     names = test_loader.dataset.names
+    columns = args.input_columns + args.target_columns
+    if args.delta:
+        names = pd.merge(pd.DataFrame(names, columns=args.input_columns),
+                         pd.DataFrame(names, columns=args.input_columns),
+                         how='cross')
+        write_cols = names.columns.to_list() + args.target_columns
+        names = list(names.itertuples(index=False, name=None))
+    else:
+        write_cols = columns
     if isinstance(test_loader.dataset, MulticomponentDataset):
         namess = list(zip(*names))
     else:
         namess = [names]
 
-    columns = args.input_columns + args.target_columns
     if "multiclass" in args.task_type:
-        columns = columns + [f"{col}_prob" for col in args.target_columns]
+        write_cols = write_cols + [f"{col}_prob" for col in args.target_columns]
         formatted_probability_strings = np.apply_along_axis(
             lambda x: ",".join(map(str, x)), 2, preds
         )
         predicted_class_labels = preds.argmax(axis=-1)
         df_preds = pd.DataFrame(
             list(zip(*namess, *predicted_class_labels.T, *formatted_probability_strings.T)),
-            columns=columns,
+            columns=write_cols,
         )
     else:
-        df_preds = pd.DataFrame(list(zip(*namess, *preds.T)), columns=columns)
+        df_preds = pd.DataFrame(list(zip(*namess, *preds.T)), columns=write_cols)
     df_preds.to_csv(model_output_dir / "test_predictions.csv", index=False)
 
 
@@ -1256,13 +1322,23 @@ def main(args):
             input_transforms = normalize_inputs(train_dset, val_dset, args)
 
             if "regression" in args.task_type:
-                output_scaler = train_dset.normalize_targets()
-                val_dset.normalize_targets(output_scaler)
+                if args.delta:
+                    train_delta_y = pd.merge(pd.DataFrame(train_dset.datasets[0]._Y),
+                                             pd.DataFrame(train_dset.datasets[0]._Y),
+                                             how='cross')
+                    train_delta_y = train_delta_y.iloc[:,1] - train_delta_y.iloc[:,0]
+                    output_scaler = StandardScaler().fit(train_delta_y.to_frame())
+                    output_scaler.mean_ = output_scaler.mean_.astype(np.float32)
+                    output_scaler.scale_ = output_scaler.scale_.astype(np.float32)
+                else:
+                    output_scaler = train_dset.normalize_targets()
+                    val_dset.normalize_targets(output_scaler)
                 logger.info(
                     f"Train data: mean = {output_scaler.mean_} | std = {output_scaler.scale_}"
                 )
                 output_transform = UnscaleTransform.from_standard_scaler(output_scaler)
             else:
+                output_scaler = None
                 output_transform = None
 
         if not args.no_cache:
@@ -1274,16 +1350,18 @@ def main(args):
             args.batch_size,
             args.num_workers,
             class_balance=args.class_balance,
+            delta_dataset=args.delta,
+            output_scaler=output_scaler,
             seed=args.data_seed,
         )
         if args.class_balance:
             logger.debug(
                 f"With `--class-balance`, effective train size = {len(train_loader.sampler)}"
             )
-        val_loader = build_dataloader(val_dset, args.batch_size, args.num_workers, shuffle=False)
+        val_loader = build_dataloader(val_dset, args.batch_size, args.num_workers, delta_dataset=args.delta, output_scaler=output_scaler, shuffle=False)
         if test_dset is not None:
             test_loader = build_dataloader(
-                test_dset, args.batch_size, args.num_workers, shuffle=False
+                test_dset, args.batch_size, args.num_workers, delta_dataset=args.delta, output_scaler=output_scaler, shuffle=False
             )
         else:
             test_loader = None

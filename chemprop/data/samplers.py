@@ -64,3 +64,29 @@ class ClassBalanceSampler(Sampler):
     def __len__(self) -> int:
         """the number of indices that will be sampled."""
         return self.length
+
+
+class DeltaSampler(SeededSampler):
+    """
+    Pair datapoints during training.
+    """
+
+    def __init__(self, N: int, seed: Optional[int] = None, shuffle: bool = False):
+        self.N = N
+        self.n_pairs = N**2
+        self.idxs = np.arange(self.n_pairs)
+        self.shuffle = shuffle
+        if self.shuffle:
+            self.rg = np.random.default_rng(seed)
+
+    def __iter__(self) -> Iterator[int]:
+        """an iterator over indices to sample."""
+        if self.shuffle:
+            self.rg.shuffle(self.idxs)
+        for i in self.idxs:
+            yield i//self.N
+            yield i%self.N
+
+    def __len__(self) -> int:
+        # Needs to be set to ensure all data runs through the model at each epoch:
+        return self.n_pairs*2

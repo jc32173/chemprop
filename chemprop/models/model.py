@@ -242,7 +242,7 @@ class MPNN(pl.LightningModule):
 
     @classmethod
     def load_submodules(cls, checkpoint_path, map_location=None, **kwargs):
-        hparams = torch.load(checkpoint_path, map_location=map_location)["hyper_parameters"]
+        hparams = torch.load(checkpoint_path, map_location=map_location, weights_only=False)["hyper_parameters"]
 
         kwargs |= {
             key: hparams[key].pop("cls")(**hparams[key])
@@ -262,7 +262,7 @@ class MPNN(pl.LightningModule):
 
     @classmethod
     def load_from_file(cls, model_path, map_location=None, strict=True) -> MPNN:
-        d = torch.load(model_path, map_location=map_location)
+        d = torch.load(model_path, map_location=map_location, weights_only=False)
 
         try:
             hparams = d["hyper_parameters"]
