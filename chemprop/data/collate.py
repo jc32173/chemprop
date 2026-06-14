@@ -8,6 +8,8 @@ from torch import Tensor
 from chemprop.data.datasets import Datum
 from chemprop.data.molgraph import MolGraph
 
+from sklearn.preprocessing import StandardScaler
+
 
 @dataclass(repr=False, eq=False, slots=True)
 class BatchMolGraph:
@@ -117,4 +119,50 @@ def collate_multicomponent(batches: Iterable[Iterable[Datum]]) -> Multicomponent
         tbs[0].w,
         tbs[0].lt_mask,
         tbs[0].gt_mask,
+    )
+
+
+#def collate_batch_delta(batch: Iterable[Datum],
+#                        y_scaler=None,
+#                        X_d_scaler=None) -> TrainingBatch:
+#    mgs, V_ds, x_ds, ys, weights, lt_masks, gt_masks = zip(*batch)
+#
+#    return TrainingBatch(
+#        BatchMolGraph(mgs),
+#        None if V_ds[0] is None else torch.from_numpy(np.concatenate(V_ds)).float(),
+#        None if x_ds[0] is None else torch.from_numpy(np.array(x_ds)).float(),
+#        None if ys[0] is None else torch.from_numpy(np.array(ys)).float(),
+#        torch.tensor(weights, dtype=torch.float).unsqueeze(1),
+#        None if lt_masks[0] is None else torch.from_numpy(np.array(lt_masks)),
+#        None if gt_masks[0] is None else torch.from_numpy(np.array(gt_masks)),
+#    )
+
+
+def collate_multicomponent_delta(batches: Iterable[Iterable[Datum]],
+                                 y_scaler: StandardScaler | None=None,
+                                 X_d_scaler: StandardScaler | None=None) -> MulticomponentTrainingBatch:
+    tbs1 = [collate_batch(batch) for batch in zip(*batches[::2])]
+    tbs2 = [collate_batch(batch) for batch in zip(*batches[1::2])]
+
+    delta_y = tbs2[0].Y - tbs1[0].Y
+    if y_scaler is not None:
+        delta_y = (delta_y - y_scaler.mean_)/y_scaler.scale_
+
+    if X_d_scaler is not None:
+        X_d = (torch.concat([tbs1[0].X_d, tbs2[0].X_d], dim=1) - X_d_scaler.mean_)/X_d_scaler.scale_
+    elif tbs1[0].X_d is not None:
+        X_d = torch.concat([tbs1[0].X_d, tbs2[0].X_d], dim=1)
+    else:
+        X_d = None
+
+    return MulticomponentTrainingBatch(
+        [tb.bmg for tb in tbs1]+[tb.bmg for tb in tbs2],
+        [tb.V_d for tb in tbs1]+[tb.V_d for tb in tbs2],
+        X_d,
+        delta_y,
+        (tbs1[0].w + tbs2[0].w)/2,
+        #tbs[0].lt_mask,
+        None,
+        #tbs[0].gt_mask,
+        None,
     )
