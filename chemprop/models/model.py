@@ -152,8 +152,16 @@ class MPNN(pl.LightningModule):
 
         return l
 
+    # Update on_validation_model_eval with version in current chemprop
+    # to ensure that scaling is not applied to the validation step:
+    #def on_validation_model_eval(self) -> None:
+    #    self.eval()
+    #    self.predictor.output_transform.train()
     def on_validation_model_eval(self) -> None:
         self.eval()
+        #self.message_passing.V_d_transform.train()
+        #self.message_passing.graph_transform.train()
+        self.X_d_transform.train()
         self.predictor.output_transform.train()
 
     def validation_step(self, batch: TrainingBatch, batch_idx: int = 0):

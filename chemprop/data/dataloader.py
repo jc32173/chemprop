@@ -6,14 +6,11 @@ from chemprop.data.collate import collate_batch, collate_multicomponent, collate
 from chemprop.data.datasets import MoleculeDataset, MulticomponentDataset, ReactionDataset
 from chemprop.data.samplers import ClassBalanceSampler, SeededSampler, DeltaSampler
 
-from sklearn.preprocessing import StandardScaler
-
 def build_dataloader(
     dataset: MoleculeDataset | ReactionDataset | MulticomponentDataset,
     batch_size: int = 64,
     num_workers: int = 0,
     delta_dataset: bool = False,
-    output_scaler: StandardScaler | None = None,
     class_balance: bool = False,
     seed: int | None = None,
     shuffle: bool = True,
@@ -55,7 +52,7 @@ def build_dataloader(
 
     if isinstance(dataset, MulticomponentDataset):
         if delta_dataset:
-            collate_fn = lambda x: collate_multicomponent_delta(x, y_scaler=output_scaler)
+            collate_fn = collate_multicomponent_delta
         else:
             collate_fn = collate_multicomponent
     else:

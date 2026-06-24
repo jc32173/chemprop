@@ -8,8 +8,6 @@ from torch import Tensor
 from chemprop.data.datasets import Datum
 from chemprop.data.molgraph import MolGraph
 
-from sklearn.preprocessing import StandardScaler
-
 
 @dataclass(repr=False, eq=False, slots=True)
 class BatchMolGraph:
@@ -139,21 +137,14 @@ def collate_multicomponent(batches: Iterable[Iterable[Datum]]) -> Multicomponent
 
 
 def collate_multicomponent_delta(batches: Iterable[Iterable[Datum]],
-                                 y_scaler: StandardScaler | None=None,
-                                 X_d_scaler: StandardScaler | None=None) -> MulticomponentTrainingBatch:
+                                ) -> MulticomponentTrainingBatch:
     tbs1 = [collate_batch(batch) for batch in zip(*batches[::2])]
     tbs2 = [collate_batch(batch) for batch in zip(*batches[1::2])]
 
     delta_y = tbs2[0].Y - tbs1[0].Y
-    if y_scaler is not None:
-        delta_y = (delta_y - y_scaler.mean_)/y_scaler.scale_
-
-    if X_d_scaler is not None:
-        X_d = (torch.concat([tbs1[0].X_d, tbs2[0].X_d], dim=1) - X_d_scaler.mean_)/X_d_scaler.scale_
-    elif tbs1[0].X_d is not None:
+    X_d = None
+    if tbs1[0].X_d is not None:
         X_d = torch.concat([tbs1[0].X_d, tbs2[0].X_d], dim=1)
-    else:
-        X_d = None
 
     return MulticomponentTrainingBatch(
         [tb.bmg for tb in tbs1]+[tb.bmg for tb in tbs2],

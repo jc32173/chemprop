@@ -1323,16 +1323,13 @@ def main(args):
 
             if "regression" in args.task_type:
                 if args.delta:
-                    train_delta_y = pd.merge(pd.DataFrame(train_dset.datasets[0]._Y),
-                                             pd.DataFrame(train_dset.datasets[0]._Y),
-                                             how='cross')
-                    train_delta_y = train_delta_y.iloc[:,1] - train_delta_y.iloc[:,0]
-                    output_scaler = StandardScaler().fit(train_delta_y.to_frame())
-                    output_scaler.mean_ = output_scaler.mean_.astype(np.float32)
-                    output_scaler.scale_ = output_scaler.scale_.astype(np.float32)
+                    output_scaler = StandardScaler()
+                    output_scaler.mean_ = np.array([0])
+                    output_scaler.scale_ = np.array([np.std(train_dset.datasets[0]._Y, ddof=0)*(2**0.5)])
+                    train_dset.normalize_targets(output_scaler)
                 else:
                     output_scaler = train_dset.normalize_targets()
-                    val_dset.normalize_targets(output_scaler)
+                val_dset.normalize_targets(output_scaler)
                 logger.info(
                     f"Train data: mean = {output_scaler.mean_} | std = {output_scaler.scale_}"
                 )
@@ -1351,17 +1348,16 @@ def main(args):
             args.num_workers,
             class_balance=args.class_balance,
             delta_dataset=args.delta,
-            output_scaler=output_scaler,
             seed=args.data_seed,
         )
         if args.class_balance:
             logger.debug(
                 f"With `--class-balance`, effective train size = {len(train_loader.sampler)}"
             )
-        val_loader = build_dataloader(val_dset, args.batch_size, args.num_workers, delta_dataset=args.delta, output_scaler=output_scaler, shuffle=False)
+        val_loader = build_dataloader(val_dset, args.batch_size, args.num_workers, delta_dataset=args.delta, shuffle=False)
         if test_dset is not None:
             test_loader = build_dataloader(
-                test_dset, args.batch_size, args.num_workers, delta_dataset=args.delta, output_scaler=output_scaler, shuffle=False
+                test_dset, args.batch_size, args.num_workers, delta_dataset=args.delta, shuffle=False
             )
         else:
             test_loader = None
