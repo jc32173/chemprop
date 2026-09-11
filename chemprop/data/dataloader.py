@@ -1,16 +1,20 @@
 import warnings
+from typing import Iterable
 
 from torch.utils.data import DataLoader
 
-from chemprop.data.collate import collate_batch, collate_multicomponent, collate_multicomponent_delta
+from chemprop.data.collate import collate_batch, collate_multicomponent, collate_multicomponent_delta, collate_multicomponent_deltaclass
 from chemprop.data.datasets import MoleculeDataset, MulticomponentDataset, ReactionDataset
-from chemprop.data.samplers import ClassBalanceSampler, SeededSampler, DeltaSampler
+from chemprop.data.samplers import ClassBalanceSampler, SeededSampler, DeltaSampler, PrepairedDeltaSampler
+
 
 def build_dataloader(
     dataset: MoleculeDataset | ReactionDataset | MulticomponentDataset,
     batch_size: int = 64,
     num_workers: int = 0,
-    delta_dataset: bool = False,
+    delta: bool = False,
+    delta_pairs: Iterable | None = None,
+    deltaclass: bool = False,
     class_balance: bool = False,
     seed: int | None = None,
     shuffle: bool = True,
@@ -38,9 +42,13 @@ def build_dataloader(
 
     n_datapoints = len(dataset)
     y_vals_per_batch = batch_size
-    if delta_dataset:
-        sampler = DeltaSampler(len(dataset), seed, shuffle)
-        n_datapoints = (len(dataset)**2)
+    if delta:
+        if delta_pairs is not None:
+            sampler = PrepairedDeltaSampler(delta_pairs, seed, shuffle)
+            n_datapoints = len(delta_pairs)
+        else:
+            sampler = DeltaSampler(len(dataset), seed, shuffle)
+            n_datapoints = (len(dataset)**2)
         batch_size = batch_size*2
         y_vals_per_batch = batch_size//2
     elif class_balance:
@@ -51,8 +59,11 @@ def build_dataloader(
         sampler = None
 
     if isinstance(dataset, MulticomponentDataset):
-        if delta_dataset:
-            collate_fn = collate_multicomponent_delta
+        if delta:
+            if deltaclass:
+                collate_fn = collate_multicomponent_deltaclass
+            else:
+                collate_fn = collate_multicomponent_delta
         else:
             collate_fn = collate_multicomponent
     else:

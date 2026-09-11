@@ -11,6 +11,7 @@ from .datasets import (
 from .molgraph import MolGraph
 from .samplers import ClassBalanceSampler, SeededSampler
 from .splitting import SplitType, make_split_indices, split_data_by_indices
+from .deepdelta import generate_deltaclass_pairs
 
 __all__ = [
     "BatchMolGraph",

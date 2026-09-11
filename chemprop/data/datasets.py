@@ -24,6 +24,7 @@ class Datum(NamedTuple):
     V_d: np.ndarray | None
     x_d: np.ndarray | None
     y: np.ndarray | None
+    relation: np.ndarray | None
     weight: float
     lt_mask: np.ndarray | None
     gt_mask: np.ndarray | None
@@ -51,6 +52,10 @@ class _MolGraphDatasetMixin:
         self._validate_attribute(Y, "targets")
 
         self.__Y = np.array(Y, float)
+
+    @property
+    def relation(self) -> np.ndarray:
+        return np.array([d.relation for d in self.data])
 
     @cached_property
     def _X_d(self) -> np.ndarray:
@@ -178,7 +183,7 @@ class MoleculeDataset(_MolGraphDatasetMixin, MolGraphDataset):
         d = self.data[idx]
         mg = self.mg_cache[idx]
 
-        return Datum(mg, self.V_ds[idx], self.X_d[idx], self.Y[idx], d.weight, d.lt_mask, d.gt_mask)
+        return Datum(mg, self.V_ds[idx], self.X_d[idx], self.Y[idx], self.relation[idx], d.weight, d.lt_mask, d.gt_mask)
 
     @property
     def cache(self) -> bool:

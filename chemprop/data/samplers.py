@@ -1,5 +1,5 @@
 from itertools import chain
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Iterable
 
 import numpy as np
 from torch.utils.data import Sampler
@@ -66,7 +66,7 @@ class ClassBalanceSampler(Sampler):
         return self.length
 
 
-class DeltaSampler(SeededSampler):
+class DeltaSampler(Sampler):
     """
     Pair datapoints during training.
     """
@@ -90,3 +90,27 @@ class DeltaSampler(SeededSampler):
     def __len__(self) -> int:
         # Needs to be set to ensure all data runs through the model at each epoch:
         return self.n_pairs*2
+
+
+class PrepairedDeltaSampler(Sampler):
+    """
+    Choose pairs of data points from predefined list of possible pairs.
+    """
+
+    def __init__(self, pairs: Iterable[Iterable], seed: Optional[int] = None, shuffle: bool = False):
+        self.pairs = pairs
+        self.shuffle = shuffle
+        if self.shuffle:
+            self.rg = np.random.default_rng(seed)
+
+    def __iter__(self) -> Iterator[int]:
+        """an iterator over indices to sample."""
+        if self.shuffle:
+            self.rg.shuffle(self.pairs)
+        for i, p in enumerate(self.pairs):
+            yield p[0]
+            yield p[1]
+
+    def __len__(self) -> int:
+        # Needs to be set to ensure all data runs through the model at each epoch:
+        return len(self.pairs)*2

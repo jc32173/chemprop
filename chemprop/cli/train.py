@@ -43,6 +43,7 @@ from chemprop.data import (
     build_dataloader,
     make_split_indices,
     split_data_by_indices,
+    generate_deltaclass_pairs,
 )
 from chemprop.data.datasets import _MolGraphDatasetMixin
 from chemprop.models import MPNN, MulticomponentMPNN, save_model
@@ -465,10 +466,37 @@ def add_train_args(parser: ArgumentParser) -> ArgumentParser:
         help="Seed for PyTorch randomness (e.g., random initial weights)",
     )
 
+    # Get delta_args argument_group from parser:
+    delta_args = next((a for a in parser._action_groups if a.title == 'delta_args'),
+                      None)
+    if delta_args is None:
+        delta_args = parser.add_argument_group("Delta model args")
+
+    delta_args.add_argument(
+        "--deltaclass-buffer",
+        type=float,
+        default=None,
+        help="Buffer for DeltaClassifier."
+    )
+
+    # TODO: add option to only pair datapoints within groups of datapoints
+    #delta_args.add_argument(
+    #    "--delta-group-column",
+    #    help="Column in the input CSV to use to group data for delta pairing (excludes pairs between different groups)."
+    #)
+
+    # TODO: add option to read predefined splits
+    #delta_args.add_argument(
+    #    "--delta-pairs-file",
+    #    type=Path,
+    #    help="File containing predefined pairs for delta pairing, only valid with split file."
+    #)
+
     parser.add_argument(
-        "--delta",
-        action="store_true",
-        help="Generate and train model on delta dataset."
+        "--val-check-interval",
+        type=float,
+        default=1.0,
+        help="Frequence to run validation loop (val_check_interval argument to fit)."
     )
 
     return parser
@@ -536,6 +564,7 @@ def process_train_args(args: Namespace) -> Namespace:
         args.ignore_columns,
         args.splits_column,
         args.weight_column,
+        args.relation_column,
         args.no_header_row,
     )
 
@@ -588,7 +617,7 @@ def normalize_inputs(train_dset, val_dset, args):
             logger.info(
                 f"Descriptors: loc = {np.array2string(scaler.mean_, precision=3)}, scale = {np.array2string(scaler.scale_, precision=3)}"
             )
-            if args.delta:
+            if args.delta or args.deltaclass:
                 X_d_transform = DeltaScaleTransform.from_standard_scaler(scaler)
             else:
                 X_d_transform = ScaleTransform.from_standard_scaler(scaler)
@@ -880,7 +909,7 @@ def build_table(column_headers: list[str], table_rows: list[str], title: str | N
 
 def build_datasets(args, train_data, val_data, test_data):
     """build the train/val/test datasets, where :attr:`test_data` may be None"""
-    multicomponent = (len(train_data) > 1) or args.delta
+    multicomponent = (len(train_data) > 1) or args.delta or args.deltaclass
     if multicomponent:
         train_dsets = [
             make_dataset(data, args.rxn_mode, args.multi_hot_atom_featurizer_mode)
@@ -897,6 +926,7 @@ def build_datasets(args, train_data, val_data, test_data):
                 make_dataset(data, args.rxn_mode, args.multi_hot_atom_featurizer_mode)
                 for data in test_data
             ]
+
             test_dset = MulticomponentDataset(test_dsets)
         else:
             test_dset = None
@@ -910,7 +940,7 @@ def build_datasets(args, train_data, val_data, test_data):
             test_dset = make_dataset(test_data, args.rxn_mode, args.multi_hot_atom_featurizer_mode)
         else:
             test_dset = None
-    if args.task_type != "spectral":
+    if (args.task_type != "spectral") and not (args.delta or args.deltaclass):
         for dataset, label in zip(
             [train_dset, val_dset, test_dset], ["Training", "Validation", "Test"]
         ):
@@ -931,7 +961,7 @@ def build_model(
 
     X_d_transform, graph_transforms, V_d_transforms = input_transforms
     if isinstance(train_dset, MulticomponentDataset):
-        if args.delta:
+        if args.delta or args.deltaclass:
             mp_blocks = [
                 mp_cls(
                     train_dset.datasets[0].featurizer.atom_fdim,
@@ -950,8 +980,7 @@ def build_model(
                     V_d_transform=V_d_transforms[0],
                     graph_transform=graph_transforms[0],
                 )
-                # This shouldn't be hard coded, not always 2 (e.g. for pairs of nanoparticles)
-                for _ in range(2)
+                for _ in range(train_dset.n_components*2)
             ]
         else:
             mp_blocks = [
@@ -981,8 +1010,8 @@ def build_model(
                     message="Cannot use shared MPNN with both molecule and reaction data.",
                 )
 
-        if args.delta:
-            mp_block = MulticomponentMessagePassing(mp_blocks, 2, args.mpn_shared)
+        if args.delta or args.deltaclass:
+            mp_block = MulticomponentMessagePassing(mp_blocks, train_dset.n_components*2, args.mpn_shared)
             d_xd = train_dset.datasets[0].d_xd*2
         else:
             mp_block = MulticomponentMessagePassing(mp_blocks, train_dset.n_components, args.mpn_shared)
@@ -1063,7 +1092,7 @@ def build_model(
 
 
 def train_model(
-    args, train_loader, val_loader, test_loader, output_dir, output_transform, input_transforms
+    args, train_loader, val_loader, test_loader, output_dir, output_transform, input_transforms, test_deltaclass_pairs=None
 ):
     if args.checkpoint is not None:
         model_paths = find_models(args.checkpoint)
@@ -1149,6 +1178,7 @@ def train_model(
 
         trainer = pl.Trainer(
             logger=trainer_logger,
+            val_check_interval=args.val_check_interval,
             enable_progress_bar=True,
             accelerator=args.accelerator,
             devices=args.devices,
@@ -1157,6 +1187,7 @@ def train_model(
             gradient_clip_val=args.grad_clip,
             deterministic=deterministic,
         )
+
         trainer.fit(model, train_loader, val_loader)
 
         if test_loader is not None:
@@ -1181,7 +1212,7 @@ def train_model(
             preds = preds.numpy()
 
             evaluate_and_save_predictions(
-                preds, test_loader, model.metrics[:-1], model_output_dir, args
+                preds, test_loader, model.metrics[:-1], model_output_dir, args, test_deltaclass_pairs=test_deltaclass_pairs,
             )
 
         best_model_path = checkpointing.best_model_path
@@ -1194,21 +1225,31 @@ def train_model(
             temp_dir.cleanup()
 
 
-def evaluate_and_save_predictions(preds, test_loader, metrics, model_output_dir, args):
+def evaluate_and_save_predictions(preds, test_loader, metrics, model_output_dir, args,
+                                  # Need to provide valid deltaclass pairs for calculating metrics,
+                                  # but should still make and save predictions on all pairs:
+                                  test_deltaclass_pairs=None):
     if isinstance(test_loader.dataset, MulticomponentDataset):
         test_dset = test_loader.dataset.datasets[0]
     else:
         test_dset = test_loader.dataset
 
-    if args.delta:
+    if args.delta or args.deltaclass:
         targets = pd.merge(pd.DataFrame(test_dset.Y), pd.DataFrame(test_dset.Y), how='cross')
         targets = (targets.iloc[:,1] - targets.iloc[:,0]).to_numpy().reshape(len(targets), -1)
+        if args.deltaclass:
+            targets = targets > 0
+            if test_deltaclass_pairs is not None:
+                test_deltaclass_idxs = test_deltaclass_pairs[:,0]*len(test_dset) + test_deltaclass_pairs[:,1]
+                targets = targets[test_deltaclass_idxs]
+                all_preds = preds
+                preds = all_preds[test_deltaclass_idxs]
     else:
         targets = test_dset.Y
 
     mask = torch.from_numpy(np.isfinite(targets))
     targets = np.nan_to_num(targets, nan=0.0)
-    weights = torch.ones(len(test_dset))
+    weights = torch.ones(len(targets))
     lt_mask = torch.from_numpy(test_dset.lt_mask) if test_dset.lt_mask[0] is not None else None
     gt_mask = torch.from_numpy(test_dset.gt_mask) if test_dset.gt_mask[0] is not None else None
 
@@ -1247,11 +1288,14 @@ def evaluate_and_save_predictions(preds, test_loader, metrics, model_output_dir,
 
     names = test_loader.dataset.names
     columns = args.input_columns + args.target_columns
-    if args.delta:
+    if args.delta or args.deltaclass:
         names = pd.merge(pd.DataFrame(names, columns=args.input_columns),
                          pd.DataFrame(names, columns=args.input_columns),
                          how='cross')
-        write_cols = names.columns.to_list() + args.target_columns
+        if args.deltaclass:
+            write_cols = names.columns.to_list() + ['deltaclass_if_valid'] + args.target_columns
+        else:
+            write_cols = names.columns.to_list() + args.target_columns
         names = list(names.itertuples(index=False, name=None))
     else:
         write_cols = columns
@@ -1271,7 +1315,13 @@ def evaluate_and_save_predictions(preds, test_loader, metrics, model_output_dir,
             columns=write_cols,
         )
     else:
-        df_preds = pd.DataFrame(list(zip(*namess, *preds.T)), columns=write_cols)
+        if args.deltaclass and (test_deltaclass_pairs is not None):
+            all_targets = pd.Series([np.nan]*len(all_preds), dtype='boolean')
+            all_targets[test_deltaclass_idxs] = targets
+            df_preds = pd.DataFrame(list(zip(*namess, all_targets.to_list(), *all_preds.T)),
+                                    columns=write_cols)
+        else:
+            df_preds = pd.DataFrame(list(zip(*namess, *preds.T)), columns=write_cols)
     df_preds.to_csv(model_output_dir / "test_predictions.csv", index=False)
 
 
@@ -1284,6 +1334,8 @@ def main(args):
         ignore_cols=args.ignore_columns,
         splits_col=args.splits_column,
         weight_col=args.weight_column,
+        relation_col=args.relation_column,
+        deltaclass=args.deltaclass,
         bounded=args.loss_function is not None and "bounded" in args.loss_function,
     )
 
@@ -1338,6 +1390,31 @@ def main(args):
                 output_scaler = None
                 output_transform = None
 
+        # For DeltaClassifier, generate list of valid pairs before training, since some pairs will be skipped 
+        # because they fall within the buffer:
+        if args.deltaclass:
+            train_delta_pairs = generate_deltaclass_pairs(train_dset.datasets[0]._Y,
+                                                          relation=train_dset.datasets[0].relation,
+                                                          buffer=args.deltaclass_buffer,
+                                                          equals_only=args.deltaclass_equals_only,
+                                                          indices_only=True)
+            val_delta_pairs = generate_deltaclass_pairs(val_dset.datasets[0]._Y,
+                                                        relation=val_dset.datasets[0].relation,
+                                                        buffer=-1,
+                                                        indices_only=True)
+            if test_dset is not None:
+                test_delta_pairs = generate_deltaclass_pairs(test_dset.datasets[0]._Y,
+                                                             relation=test_dset.datasets[0].relation,
+                                                             buffer=-1,
+                                                             indices_only=True)
+            else:
+                test_delta_pairs = None
+
+        else:
+            train_delta_pairs = None
+            val_delta_pairs = None
+            test_delta_pairs = None
+
         if not args.no_cache:
             train_dset.cache = True
             val_dset.cache = True
@@ -1347,17 +1424,19 @@ def main(args):
             args.batch_size,
             args.num_workers,
             class_balance=args.class_balance,
-            delta_dataset=args.delta,
+            delta=args.delta or args.deltaclass,
+            delta_pairs=train_delta_pairs,
+            deltaclass=args.deltaclass,
             seed=args.data_seed,
         )
         if args.class_balance:
             logger.debug(
                 f"With `--class-balance`, effective train size = {len(train_loader.sampler)}"
             )
-        val_loader = build_dataloader(val_dset, args.batch_size, args.num_workers, delta_dataset=args.delta, shuffle=False)
+        val_loader = build_dataloader(val_dset, args.batch_size, args.num_workers, delta=args.delta or args.deltaclass, delta_pairs=val_delta_pairs, deltaclass=args.deltaclass, shuffle=False)
         if test_dset is not None:
             test_loader = build_dataloader(
-                test_dset, args.batch_size, args.num_workers, delta_dataset=args.delta, shuffle=False
+                test_dset, args.batch_size, args.num_workers, delta=args.delta or args.deltaclass, delta_pairs=None, deltaclass=args.deltaclass, shuffle=False
             )
         else:
             test_loader = None
@@ -1370,6 +1449,7 @@ def main(args):
             output_dir,
             output_transform,
             input_transforms,
+            test_deltaclass_pairs=test_delta_pairs
         )
 
 

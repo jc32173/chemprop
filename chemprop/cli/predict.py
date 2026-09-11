@@ -21,6 +21,8 @@ from chemprop.models.utils import load_model, load_output_columns
 from chemprop.nn.loss import LossFunctionRegistry
 from chemprop.nn.predictors import EvidentialFFN, MulticlassClassificationFFN, MveFFN
 
+from chemprop.data import generate_deltaclass_pairs
+
 logger = logging.getLogger(__name__)
 
 
@@ -153,6 +155,12 @@ def add_predict_args(parser: ArgumentParser) -> ArgumentParser:
     #     help="Path to the extra bond descriptors that will be used as bond features to featurize a given molecule.",
     # )
 
+    parser.add_argument(
+        "--target-columns",
+        nargs="+",
+        default=[],
+        help="Name of the columns containing target values, used to calculate class for DeltaClassifier.",
+    )
     return parser
 
 
@@ -183,10 +191,12 @@ def make_prediction_for_models(
         no_header_row=args.no_header_row,
         smiles_cols=args.smiles_columns,
         rxn_cols=args.reaction_columns,
-        target_cols=[],
+        target_cols=args.target_columns,
         ignore_cols=None,
         splits_col=None,
         weight_col=None,
+        relation_col=args.relation_column,
+        deltaclass=args.deltaclass,
         bounded=bounded,
     )
     featurization_kwargs = dict(
@@ -207,7 +217,7 @@ def make_prediction_for_models(
         make_dataset(d, args.rxn_mode, args.multi_hot_atom_featurizer_mode) for d in test_data
     ]
 
-    if multicomponent:
+    if multicomponent or args.delta or args.deltaclass:
         test_dset = data.MulticomponentDataset(test_dsets)
     else:
         test_dset = test_dsets[0]
@@ -228,7 +238,13 @@ def make_prediction_for_models(
     # else:
     #     cal_data = None
 
-    test_loader = data.build_dataloader(test_dset, args.batch_size, args.num_workers, shuffle=False)
+    # TODO: allow specific pairs for prediction
+    test_delta_pairs = None
+
+    test_loader = data.build_dataloader(test_dset, args.batch_size, args.num_workers, shuffle=False,
+                                        delta=args.delta or args.deltaclass,
+                                        delta_pairs=test_delta_pairs, deltaclass=args.deltaclass)
+
     # TODO: add uncertainty and calibration
     # if cal_data is not None:
     #     cal_dset = make_dataset(cal_data, bond_messages, args.rxn_mode)
@@ -286,6 +302,21 @@ def make_prediction_for_models(
     df_test = pd.read_csv(
         args.test_path, header=None if args.no_header_row else "infer", index_col=False
     )
+
+    if args.delta or args.deltaclass:
+        df_test = pd.merge(df_test, df_test, how='cross')
+
+        # Calculate class for DeltaClassifier and add to output file:
+        if args.deltaclass and (args.relation_column is not None) and (len(args.target_columns) > 0):
+            df_deltaclass = \
+                generate_deltaclass_pairs(test_dset.datasets[0]._Y,
+                                          relation=test_dset.datasets[0].relation,
+                                          buffer=-1,
+                                          equals_only=False,
+                                          indices_only=False,
+                                          keep_all_data=True)
+            df_test['deltaclass_if_valid'] = df_deltaclass['class_Y']
+
     df_test[output_columns] = average_preds
 
     if output_path.suffix == ".pkl":
@@ -343,7 +374,7 @@ def main(args):
         case _:
             n_components = len(args.smiles_columns) + len(args.reaction_columns)
 
-    multicomponent = n_components > 1
+    multicomponent = (n_components > 1) or args.delta or args.deltaclass
 
     model_paths = find_models(args.model_paths)
 

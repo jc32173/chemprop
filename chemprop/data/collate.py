@@ -83,7 +83,7 @@ class TrainingBatch(NamedTuple):
 
 
 def collate_batch(batch: Iterable[Datum]) -> TrainingBatch:
-    mgs, V_ds, x_ds, ys, weights, lt_masks, gt_masks = zip(*batch)
+    mgs, V_ds, x_ds, ys, relations, weights, lt_masks, gt_masks = zip(*batch)
 
     return TrainingBatch(
         BatchMolGraph(mgs),
@@ -142,6 +142,29 @@ def collate_multicomponent_delta(batches: Iterable[Iterable[Datum]],
     tbs2 = [collate_batch(batch) for batch in zip(*batches[1::2])]
 
     delta_y = tbs2[0].Y - tbs1[0].Y
+    X_d = None
+    if tbs1[0].X_d is not None:
+        X_d = torch.concat([tbs1[0].X_d, tbs2[0].X_d], dim=1)
+
+    return MulticomponentTrainingBatch(
+        [tb.bmg for tb in tbs1]+[tb.bmg for tb in tbs2],
+        [tb.V_d for tb in tbs1]+[tb.V_d for tb in tbs2],
+        X_d,
+        delta_y,
+        (tbs1[0].w + tbs2[0].w)/2,
+        #tbs[0].lt_mask,
+        None,
+        #tbs[0].gt_mask,
+        None,
+    )
+
+def collate_multicomponent_deltaclass(batches: Iterable[Iterable[Datum]],
+                                     ) -> MulticomponentTrainingBatch:
+    tbs1 = [collate_batch(batch) for batch in zip(*batches[::2])]
+    tbs2 = [collate_batch(batch) for batch in zip(*batches[1::2])]
+
+    delta_y = ((tbs2[0].Y - tbs1[0].Y) > 0).float()
+
     X_d = None
     if tbs1[0].X_d is not None:
         X_d = torch.concat([tbs1[0].X_d, tbs2[0].X_d], dim=1)

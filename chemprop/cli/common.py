@@ -144,6 +144,26 @@ def add_common_args(parser: ArgumentParser) -> ArgumentParser:
     #     help="Path to constraints applied to atomic/bond properties prediction.",
     # )
 
+    delta_args = parser.add_argument_group("Delta model args")
+    delta_args.add_argument(
+        "--delta",
+        action="store_true",
+        help="Run DeepDelta model."
+    )
+    delta_args.add_argument(
+        "--deltaclass",
+        action="store_true",
+        help="Run DeltaClassifier model."
+    )
+    delta_args.add_argument(
+        "--relation-column",
+        help="Column name in the input CSV containing relation associated with value (e.g. '=', '>' etc.) for DeltaClassifier."
+    )
+    delta_args.add_argument(
+        "--deltaclass-equals-only",
+        action="store_true",
+        help="Only consider equality ('=') data in DeltaClassifier."
+    )
     return parser
 
 

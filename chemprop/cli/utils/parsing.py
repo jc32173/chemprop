@@ -26,6 +26,8 @@ def parse_csv(
     ignore_cols: Sequence[str] | None,
     splits_col: str | None,
     weight_col: str | None,
+    relation_col: str | None,
+    deltaclass: bool = False,
     bounded: bool = False,
     no_header_row: bool = False,
 ):
@@ -58,6 +60,7 @@ def parse_csv(
 
     Y = df[target_cols]
     weights = None if weight_col is None else df[weight_col].to_numpy(np.single)
+    relations = None if relation_col is None else df[relation_col].to_numpy()
 
     if bounded:
         lt_mask = Y.applymap(lambda x: "<" in x).to_numpy()
@@ -68,7 +71,7 @@ def parse_csv(
         lt_mask = None
         gt_mask = None
 
-    return smiss, rxnss, Y, weights, lt_mask, gt_mask
+    return smiss, rxnss, Y, weights, relations, lt_mask, gt_mask
 
 
 def get_column_names(
@@ -79,6 +82,7 @@ def get_column_names(
     ignore_cols: Sequence[str] | None,
     splits_col: str | None,
     weight_col: str | None,
+    relation_col: str | None,
     no_header_row: bool = False,
 ) -> tuple[list[str], list[str]]:
     df_cols = pd.read_csv(path, index_col=False, nrows=0).columns.tolist()
@@ -96,7 +100,7 @@ def get_column_names(
             column
             for column in df_cols
             if column
-            not in set(input_cols + (ignore_cols or []) + (splits_col or []) + (weight_col or []))
+            not in set(input_cols + (ignore_cols or []) + (splits_col or []) + (weight_col or []) + (relation_col or []))
         )
 
     return input_cols, target_cols
@@ -106,6 +110,7 @@ def make_datapoints(
     smiss: list[list[str]] | None,
     rxnss: list[list[str]] | None,
     Y: np.ndarray,
+    relations: np.ndarray | None,
     weights: np.ndarray | None,
     lt_mask: np.ndarray | None,
     gt_mask: np.ndarray | None,
@@ -216,6 +221,7 @@ def make_datapoints(
         ]
 
     weights = np.ones(N, dtype=np.single) if weights is None else weights
+    relations = [None] * N if relations is None else relations
     gt_mask = [None] * N if gt_mask is None else gt_mask
     lt_mask = [None] * N if lt_mask is None else lt_mask
 
@@ -268,6 +274,7 @@ def make_datapoints(
                 mol=molss[mol_idx][i],
                 name=smis[i],
                 y=Y[i],
+                relation=relations[i],
                 weight=weights[i],
                 gt_mask=gt_mask[i],
                 lt_mask=lt_mask[i],
@@ -311,6 +318,8 @@ def build_data_from_files(
     ignore_cols: Sequence[str] | None,
     splits_col: str | None,
     weight_col: str | None,
+    relation_col: str | None,
+    deltaclass: bool,
     bounded: bool,
     p_descriptors: PathLike,
     p_atom_feats: dict[int, PathLike],
@@ -318,7 +327,7 @@ def build_data_from_files(
     p_atom_descs: dict[int, PathLike],
     **featurization_kwargs: Mapping,
 ) -> list[list[MoleculeDatapoint] | list[ReactionDatapoint]]:
-    smiss, rxnss, Y, weights, lt_mask, gt_mask = parse_csv(
+    smiss, rxnss, Y, weights, relations, lt_mask, gt_mask = parse_csv(
         p_data,
         smiles_cols,
         rxn_cols,
@@ -326,6 +335,8 @@ def build_data_from_files(
         ignore_cols,
         splits_col,
         weight_col,
+        relation_col,
+        deltaclass,
         bounded,
         no_header_row,
     )
@@ -341,6 +352,7 @@ def build_data_from_files(
         smiss,
         rxnss,
         Y,
+        relations,
         weights,
         lt_mask,
         gt_mask,
