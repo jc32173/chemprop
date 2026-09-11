@@ -55,6 +55,8 @@ export PYTHONPATH="/hpc/home/jwc81/repos/chemprop_code/chemprop_v205/chemprop":$
 export PYTHONPATH="/hpc/home/jwc81/repos":$PYTHONPATH
 export PYTHONPATH="/hpc/home/jwc81/scripts/sys_scripts/slurm":$PYTHONPATH
 
+echo -e "\nTesting on ChEMBL data (DeltaClassifier benchmark)...\n"
+
 echo "================================"
 echo " TESTING chemprop train --delta"
 echo "================================"
@@ -134,3 +136,43 @@ diff -sq <(awk -F, '{print $1","$5","$9","$10}' deltaclass/deltaclass_preds.csv)
  echo " ERROR: Check diff output"
  echo "**************************"
  exit $exitcode)
+
+echo -e "\nTesting on nanoparticle data...\n"
+
+echo "================================"
+echo " TESTING chemprop train --delta"
+echo "================================"
+
+mkdir -p delta_NP
+chemprop train -i data/curated_drug_loading_test.csv \
+	       --smiles-columns excipient_smiles drug_smiles \
+	       --target-columns "drug_loading mean" \
+	       --epochs 3 \
+	       --num-workers 0 \
+	       --molecule-featurizers rdkit_2d \
+	       --save-dir delta_NP/ \
+	       --pytorch-seed 141 \
+	       --task-type "regression" \
+               --delta
+
+# TODO: Predefine test data in curated_drug_loading.csv to make predictions on same datapoints and compare results
+#echo "=================================="
+#echo " TESTING chemprop predict --delta"
+#echo "=================================="
+#
+#chemprop predict -i data/curated_drug_loading_test.csv \
+#               --smiles-columns excipient_smiles drug_smiles \
+#	       --target-columns "drug_loading mean" \
+#               --model-path delta_NP/model_0/best.pt \
+#               --num-workers 0 \
+#               -o delta_NP/delta_preds.csv \
+#               --molecule-featurizers rdkit_2d \
+#               --delta
+#
+#echo "Check predictions from 'chemprop train --delta' and 'chemprop predict --delta' are the same:"
+#diff -sq <(awk -F, '{print $1","$5","$9}' delta_NP/delta_preds.csv) delta_NP/model_0/test_predictions.csv || \
+#(exitcode=$?
+# echo "**************************"
+# echo " ERROR: Check diff output"
+# echo "**************************"
+# exit $exitcode)
