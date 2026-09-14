@@ -1,3 +1,81 @@
+## Modified Chemprop for DeepDelta and DeltaClassifier models
+
+This is a modified version of Chemprop version 2.0.5 which can generate delta datasets and train DeepDelta and DeltaClassifier models.  The delta dataset is generated one batch at a time to avoid storing the full delta dataset in memory and reduce the memory requirements.  There are some additional command line options for running delta models.
+
+### Additional command line options
+- **DeepDelta:**
+
+    | | | |
+    | :--- | :--- | :--- |
+    | `--delta` | &emsp; | Run DeepDelta model. |
+
+- **DeltaClassifier:**
+
+    | | | |
+    | :--- | :--- | :--- |
+    | `--deltaclass` | &emsp; | Run DeltaClassifier model (also need to change `--task-type` argument to `classification`). |
+    | `--relation_column` | &emsp; | Column name in the input CSV containing the relation associated with each value (e.g. '=', '>' etc.). |
+    | `--deltaclass_buffer` | &emsp; | DeltaClassifier buffer, ignore paired data points if delta value is < buffer. |
+    | `--deltaclass_equals_only` | &emsp; | Only consider equality ('=') data in DeltaClassifier. |
+
+
+### Examples
+
+There are some example datasets and scripts in `tests/delta_tests/` to test the delta models.
+
+- **DeepDelta:**
+    - To train a DeepDelta model:
+        ```
+        chemprop train -i tests/delta_tests/data/CHEMBL3710-Curated_splits.csv \
+                       --smiles-columns SMILES \
+                       --target-columns Value \
+                       --splits-column Split \
+                       --molecule-featurizers rdkit_2d \
+                       --task-type regression \
+                       --delta
+        ```
+
+    - To make predictions using a DeepDelta model:
+        ```
+        chemprop predict -i tests/delta_tests/data/CHEMBL3710-Curated_splits_test_only.csv \
+                         --smiles-columns SMILES \
+                         --target-columns Value \
+                         --molecule-featurizers rdkit_2d \
+                         --model-path delta/model_0/best.pt \
+                         -o delta_preds.csv \
+                         --delta
+        ```
+
+- **DeltaClassifier:**
+    - To train a DeltaClassifier model:
+        ```
+        chemprop train -i tests/delta_tests/data/CHEMBL3710-Curated_splits.csv \
+                       --smiles-columns SMILES \
+                       --target-columns Value \
+                       --splits-column Split \
+                       --molecule-featurizers rdkit_2d \
+                       --task-type classification \
+                       --deltaclass \
+                       --deltaclass-buffer 0.1 \
+                       --relation-column Relation
+        ```
+
+    - To make predictions using a DeltaClassifier model:
+        ```
+        chemprop predict -i tests/delta_tests/data/CHEMBL3710-Curated_splits_test_only.csv \
+                         --smiles-columns SMILES \
+                         --target-columns Value \
+                         --model-path deltaclass/model_0/best.pt \
+                         -o deltaclass_preds.csv \
+                         --molecule-featurizers rdkit_2d \
+                         --deltaclass \
+                         --relation-column Relation
+        ```
+
+Original Chemprop README below:
+
+---
+
 ![ChemProp Logo](docs/source/_static/images/logo/chemprop_logo.svg)
 # Chemprop
 
