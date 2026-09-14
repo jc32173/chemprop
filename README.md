@@ -3,21 +3,34 @@
 This is a modified version of Chemprop version 2.0.5 which can generate delta datasets and train DeepDelta and DeltaClassifier models.  The delta dataset is generated one batch at a time to avoid storing the full delta dataset in memory and reduce the memory requirements.  There are some additional command line options for running delta models.
 
 ### Additional command line options
-- **DeepDelta:**
 
-    | | | |
-    | :--- | :--- | :--- |
-    | `--delta` | &emsp; | Run DeepDelta model. |
+- **DeepDelta:**
+    <table>
+      <tr>
+        <td><code>--delta</code></td>
+        <td>Run DeepDelta model.</td>
+      </tr>
+    </table>
 
 - **DeltaClassifier:**
-
-    | | | |
-    | :--- | :--- | :--- |
-    | `--deltaclass` | &emsp; | Run DeltaClassifier model (also need to change `--task-type` argument to `classification`). |
-    | `--relation_column` | &emsp; | Column name in the input CSV containing the relation associated with each value (e.g. '=', '>' etc.). |
-    | `--deltaclass_buffer` | &emsp; | DeltaClassifier buffer, ignore paired data points if delta value is < buffer. |
-    | `--deltaclass_equals_only` | &emsp; | Only consider equality ('=') data in DeltaClassifier. |
-
+    <table>
+      <tr>
+        <td><code>--deltaclass</code></td>
+        <td>Run DeltaClassifier model (also need to change <code>--task-type</code> argument to <code>classification</code>).</td>
+      </tr>
+      <tr>
+        <td><code>--relation_column</code></td>
+        <td>Column name in the input CSV containing the relation associated with each value (e.g. '=', '>' etc.).</td>
+      </tr>
+      <tr>
+        <td><code>--deltaclass_buffer</code></td>
+        <td>DeltaClassifier buffer, ignore paired data points if delta value is < buffer.</td>
+      </tr>
+      <tr>
+        <td><code>--deltaclass_equals_only</code></td>
+        <td>Only consider equality ('=') data in DeltaClassifier.</td>
+      </tr>
+    </table>
 
 ### Examples
 
