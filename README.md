@@ -27,7 +27,7 @@ This is a modified version of Chemprop version 2.0.5 which can generate delta da
         <td>DeltaClassifier buffer, ignore paired data points if delta value is < buffer.</td>
       </tr>
       <tr>
-        <td><code style="white-space: nowrap; word-break: keep-all;">--deltaclass_equals_only</code></td>
+        <td><code>&#8209;&#8209;deltaclass_equals_only</code></td>
         <td>Only consider equality ('=') data in DeltaClassifier.</td>
       </tr>
     </table>
