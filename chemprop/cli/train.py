@@ -467,7 +467,7 @@ def add_train_args(parser: ArgumentParser) -> ArgumentParser:
     )
 
     # Get delta_args argument_group from parser:
-    delta_args = next((a for a in parser._action_groups if a.title == 'delta_args'),
+    delta_args = next((a for a in parser._action_groups if a.title == 'Delta model args'),
                       None)
     if delta_args is None:
         delta_args = parser.add_argument_group("Delta model args")
