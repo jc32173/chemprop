@@ -19,15 +19,15 @@ This is a modified version of Chemprop version 2.0.5 which can generate delta da
         <td>Run DeltaClassifier model (also need to change <code>--task-type</code> argument to <code>classification</code>).</td>
       </tr>
       <tr>
-        <td><code>--relation_column</code></td>
+        <td><code>--relation-column</code></td>
         <td>Column name in the input CSV containing the relation associated with each value (e.g. '=', '>' etc.).</td>
       </tr>
       <tr>
-        <td><code>--deltaclass_buffer</code></td>
+        <td><code>--deltaclass-buffer</code></td>
         <td>DeltaClassifier buffer, ignore paired data points if delta value is < buffer.</td>
       </tr>
       <tr>
-        <td><code>&#8209;&#8209;deltaclass_equals_only</code></td>
+        <td><code>&#8209;&#8209;deltaclass&#8209;equals&#8209;only</code></td>
         <td>Only consider equality ('=') data in DeltaClassifier.</td>
       </tr>
     </table>
