@@ -196,7 +196,7 @@ def make_prediction_for_models(
         splits_col=None,
         weight_col=None,
         relation_col=args.relation_column,
-        deltaclass=args.deltaclass,
+        delta_group_col=None,
         bounded=bounded,
     )
     featurization_kwargs = dict(
@@ -217,7 +217,7 @@ def make_prediction_for_models(
         make_dataset(d, args.rxn_mode, args.multi_hot_atom_featurizer_mode) for d in test_data
     ]
 
-    if multicomponent or args.delta or args.deltaclass:
+    if multicomponent:
         test_dset = data.MulticomponentDataset(test_dsets)
     else:
         test_dset = test_dsets[0]

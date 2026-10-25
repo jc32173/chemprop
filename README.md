@@ -7,16 +7,16 @@ This is a modified version of Chemprop version 2.0.5 which can generate delta da
 - **DeepDelta:**
     <table>
       <tr>
-        <td><code>--delta</code></td>
-        <td>Run DeepDelta model.</td>
+        <td width="220"><code>--delta</code></td>
+        <td width="640">Run DeepDelta model.</td>
       </tr>
     </table>
 
 - **DeltaClassifier:**
     <table>
       <tr>
-        <td><code>--deltaclass</code></td>
-        <td>Run DeltaClassifier model (also need to change <code>--task-type</code> argument to <code>classification</code>).</td>
+        <td width="220"><code>--deltaclass</code></td>
+        <td width="640">Run DeltaClassifier model (also need to change <code>--task-type</code> argument to <code>classification</code>).</td>
       </tr>
       <tr>
         <td><code>--relation-column</code></td>
@@ -24,7 +24,7 @@ This is a modified version of Chemprop version 2.0.5 which can generate delta da
       </tr>
       <tr>
         <td><code>--deltaclass-buffer</code></td>
-        <td>DeltaClassifier buffer, ignore paired data points if delta value is < buffer.</td>
+        <td>DeltaClassifier buffer, ignore paired data points in the training set if the delta value is < buffer.</td>
       </tr>
       <tr>
         <td><code>&#8209;&#8209;deltaclass&#8209;equals&#8209;only</code></td>
@@ -32,7 +32,19 @@ This is a modified version of Chemprop version 2.0.5 which can generate delta da
       </tr>
     </table>
 
-### Examples
+- **Both:**
+    <table>
+      <tr>
+        <td width="220"><code>&#8209;&#8209;delta&#8209;group&#8209;column</code></td>
+        <td width="640">Column name in the input CSV containing the group that each molecule belongs to for delta pairing, only molecules in the same group will be paired together.</td>
+      </tr>
+      <tr>
+        <td><code>&#8209;&#8209;delta&#8209;pairs&#8209;subsample</code></td>
+        <td>Randomly downsample the number of pairs in the training set.  If < 1, downsample to this fraction of the full training set, if > 1 downsample to this absolute number of pairs.  If run with <code>&#8209;&#8209;delta&#8209;group&#8209;column</code>, downsampling will be stratified by group.</td>
+      </tr>
+    </table>
+
+### Examples/Tests
 
 There are some example datasets and scripts in `tests/delta_tests/` to test the delta models.
 

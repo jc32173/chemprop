@@ -83,7 +83,7 @@ class TrainingBatch(NamedTuple):
 
 
 def collate_batch(batch: Iterable[Datum]) -> TrainingBatch:
-    mgs, V_ds, x_ds, ys, relations, weights, lt_masks, gt_masks = zip(*batch)
+    mgs, V_ds, x_ds, ys, relations, delta_groups, weights, lt_masks, gt_masks = zip(*batch)
 
     return TrainingBatch(
         BatchMolGraph(mgs),

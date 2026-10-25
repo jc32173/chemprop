@@ -1,8 +1,19 @@
+import numpy as np
 import pandas as pd
 import copy
 
-def generate_deltaclass_pairs(y, relation=None, buffer=0, equals_only=False, indices_only=False, keep_all_data=False):
+
+def generate_all_idx_pairs(n_datapoints):
+    """Generate all possible pairs of datapoints, in order: [[0, 0], [0, 1], [0, 2], ...]"""
+    x, y = np.meshgrid(range(n_datapoints), range(n_datapoints))
+    pairs = np.column_stack((y.ravel(), x.ravel()))
+    return pairs
+
+
+def generate_deltaclass_pairs(y, relation=[None], buffer=0, equals_only=False, indices_only=False, keep_all_data=False):
     """
+    NOTE: Chemprop stores y data as float32.  Need to convert data to float32 to replicate chemprop dataset, especially with a non-zero buffer when the level of precision may affect which datapoint pairs are above the buffer.
+
     Function to generate pairs for DeltaClassifier model.
 
     # Print full output for manual testing:
@@ -26,7 +37,7 @@ def generate_deltaclass_pairs(y, relation=None, buffer=0, equals_only=False, ind
     32      5          <  1.5      2          >  2.4      0.9     True
     """
 
-    if relation is None:
+    if relation[0] is None:
         print("No relation associated with y values, assuming all data is '='.")
         relation = ['=']*len(y)
         equals_only = True

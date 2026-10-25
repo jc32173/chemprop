@@ -44,6 +44,7 @@ from chemprop.data import (
     make_split_indices,
     split_data_by_indices,
     generate_deltaclass_pairs,
+    generate_all_idx_pairs,
 )
 from chemprop.data.datasets import _MolGraphDatasetMixin
 from chemprop.models import MPNN, MulticomponentMPNN, save_model
@@ -58,6 +59,7 @@ from chemprop.nn.utils import Activation
 from chemprop.utils import Factory
 
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 
 logger = logging.getLogger(__name__)
 
@@ -475,15 +477,21 @@ def add_train_args(parser: ArgumentParser) -> ArgumentParser:
     delta_args.add_argument(
         "--deltaclass-buffer",
         type=float,
-        default=None,
+        default=-1,
         help="Buffer for DeltaClassifier."
     )
 
-    # TODO: add option to only pair datapoints within groups of datapoints
-    #delta_args.add_argument(
-    #    "--delta-group-column",
-    #    help="Column in the input CSV to use to group data for delta pairing (excludes pairs between different groups)."
-    #)
+    delta_args.add_argument(
+        "--delta-pairs-subsample",
+        type=float,
+        default=None,
+        help="Subsample delta pairs."
+    )
+
+    delta_args.add_argument(
+        "--delta-group-column",
+        help="Column in the input CSV to use to group data for delta pairing (excludes pairs between different groups)."
+    )
 
     # TODO: add option to read predefined splits
     #delta_args.add_argument(
@@ -496,7 +504,13 @@ def add_train_args(parser: ArgumentParser) -> ArgumentParser:
         "--val-check-interval",
         type=float,
         default=1.0,
-        help="Frequence to run validation loop (val_check_interval argument to fit)."
+        help="Frequency to run validation loop (val_check_interval argument to fit)."
+    )
+
+    parser.add_argument(
+        "--prediction-batch-size",
+        type=int,
+        help="Batch size for prediction (validation and test sets) if different to training."
     )
 
     return parser
@@ -1163,7 +1177,7 @@ def train_model(
 
         checkpointing = ModelCheckpoint(
             checkpoint_dir / "checkpoints",
-            "best-{epoch}-{val_loss:.2f}",
+            "best-{epoch}-{step}-{val_loss:.2f}",
             "val_loss",
             mode=monitor_mode,
             save_last=True,
@@ -1335,7 +1349,7 @@ def main(args):
         splits_col=args.splits_column,
         weight_col=args.weight_column,
         relation_col=args.relation_column,
-        deltaclass=args.deltaclass,
+        delta_group_col=args.delta_group_column,
         bounded=args.loss_function is not None and "bounded" in args.loss_function,
     )
 
@@ -1410,10 +1424,58 @@ def main(args):
             else:
                 test_delta_pairs = None
 
+        # Need to generate explicit delta pairs if not using exhaustive pairing:
+        elif args.delta and ((args.delta_pairs_subsample is not None) or (args.delta_group_column is not None)):
+            train_delta_pairs = generate_all_idx_pairs(len(train_dset))
+            val_delta_pairs = generate_all_idx_pairs(len(val_dset))
+            if test_dset is not None:
+                test_delta_pairs = generate_all_idx_pairs(len(test_dset))
+            else:
+                test_delta_pairs = None
+
         else:
             train_delta_pairs = None
             val_delta_pairs = None
             test_delta_pairs = None
+
+        # Only pair datapoints in the same group:
+        if args.delta_group_column is not None:
+            dpairgrps = np.stack(
+                [train_dset.datasets[0].delta_group[train_delta_pairs[:,0]],
+                 train_dset.datasets[0].delta_group[train_delta_pairs[:,1]]], axis=1)
+            ingroup_pairs = np.all(dpairgrps==dpairgrps[:,[0]], axis=1)
+            train_delta_pairs = train_delta_pairs[ingroup_pairs]
+
+            if args.delta_pairs_subsample is not None:
+                logger.info('Delta pair subsampling will be done proportionally within each group.')
+                dpairgrps[ingroup_pairs,0]
+                if args.delta_pairs_subsample > 1:
+                    frac_sample = args.delta_pairs_subsample/len(train_delta_pairs)
+                else:
+                    frac_sample = args.delta_pairs_subsample
+                sampled_pairs, _, = train_test_split(range(len(train_delta_pairs)),
+                                                     train_size=frac_sample,
+                                                     stratify=dpairgrps[ingroup_pairs,0],
+                                                     random_state=args.data_seed)
+                train_delta_pairs = train_delta_pairs[sampled_pairs]
+
+        elif args.delta_pairs_subsample is not None:
+            #if train_delta_pairs is None:
+            #    raise ValueError('Cannot subsample pairs if not using delta or deltaclass model.')
+            if args.delta_pairs_subsample < 1:
+                n_sample = int(round(len(train_delta_pairs)*args.delta_pairs_subsample))
+            elif args.delta_pairs_subsample > len(train_delta_pairs):
+                logger.warning(f"`--delta-pairs-subsample` ({arg.delta_pairs_subsample}) > total number of delta pairs in training set ({len(train_delta_pairs)}), will not subsample pairs.")
+            else:
+                n_sample = args.delta_pairs_subsample
+            rng = np.random.default_rng(seed=args.data_seed)
+            train_delta_pairs = train_delta_pairs[rng.choice(len(train_delta_pairs), size=n_sample, replace=False)]
+
+        if train_delta_pairs is not None:
+            if args.delta_group_column is not None:
+                logger.info(f"Delta model training dataset contains {len(train_delta_pairs)} delta pairs (generated from a training dataset of {len(train_dset)} individual datapoints (={len(train_dset)**2} potential total pairs), separated into {len(np.unique(dpairgrps[:,[0]]))} groups)")
+            else:
+                logger.info(f"Delta model training dataset contains {len(train_delta_pairs)} delta pairs (generated from a training dataset of {len(train_dset)} individual datapoints (={len(train_dset)**2} potential total pairs))")
 
         if not args.no_cache:
             train_dset.cache = True
@@ -1433,10 +1495,10 @@ def main(args):
             logger.debug(
                 f"With `--class-balance`, effective train size = {len(train_loader.sampler)}"
             )
-        val_loader = build_dataloader(val_dset, args.batch_size, args.num_workers, delta=args.delta or args.deltaclass, delta_pairs=val_delta_pairs, deltaclass=args.deltaclass, shuffle=False)
+        val_loader = build_dataloader(val_dset, args.prediction_batch_size or args.batch_size, args.num_workers, delta=args.delta or args.deltaclass, delta_pairs=val_delta_pairs, deltaclass=args.deltaclass, shuffle=False)
         if test_dset is not None:
             test_loader = build_dataloader(
-                test_dset, args.batch_size, args.num_workers, delta=args.delta or args.deltaclass, delta_pairs=None, deltaclass=args.deltaclass, shuffle=False
+                test_dset, args.prediction_batch_size or args.batch_size, args.num_workers, delta=args.delta or args.deltaclass, delta_pairs=None, deltaclass=args.deltaclass, shuffle=False
             )
         else:
             test_loader = None

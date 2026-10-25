@@ -19,6 +19,8 @@ class _DatapointMixin:
     """the targets for the molecule with unknown targets indicated by `nan`s"""
     relation: np.ndarray | None = None
     """the relation associated with the y data (e.g. =, > etc.) for DeltaClassifier"""
+    delta_group: np.ndarray | None = None
+    """the subset of other datapoints to pair this datapoint with"""
     weight: float = 1.0
     """the weight of this datapoint for the loss calculation."""
     gt_mask: np.ndarray | None = None

@@ -27,7 +27,7 @@ def parse_csv(
     splits_col: str | None,
     weight_col: str | None,
     relation_col: str | None,
-    deltaclass: bool = False,
+    delta_group_col: str | None,
     bounded: bool = False,
     no_header_row: bool = False,
 ):
@@ -61,6 +61,7 @@ def parse_csv(
     Y = df[target_cols]
     weights = None if weight_col is None else df[weight_col].to_numpy(np.single)
     relations = None if relation_col is None else df[relation_col].to_numpy()
+    delta_groups = None if delta_group_col is None else df[delta_group_col].to_numpy()
 
     if bounded:
         lt_mask = Y.applymap(lambda x: "<" in x).to_numpy()
@@ -71,7 +72,7 @@ def parse_csv(
         lt_mask = None
         gt_mask = None
 
-    return smiss, rxnss, Y, weights, relations, lt_mask, gt_mask
+    return smiss, rxnss, Y, weights, relations, delta_groups, lt_mask, gt_mask
 
 
 def get_column_names(
@@ -111,6 +112,7 @@ def make_datapoints(
     rxnss: list[list[str]] | None,
     Y: np.ndarray,
     relations: np.ndarray | None,
+    delta_groups: np.ndarray | None,
     weights: np.ndarray | None,
     lt_mask: np.ndarray | None,
     gt_mask: np.ndarray | None,
@@ -222,6 +224,7 @@ def make_datapoints(
 
     weights = np.ones(N, dtype=np.single) if weights is None else weights
     relations = [None] * N if relations is None else relations
+    delta_groups = [None] * N if delta_groups is None else delta_groups
     gt_mask = [None] * N if gt_mask is None else gt_mask
     lt_mask = [None] * N if lt_mask is None else lt_mask
 
@@ -275,6 +278,7 @@ def make_datapoints(
                 name=smis[i],
                 y=Y[i],
                 relation=relations[i],
+                delta_group=delta_groups[i],
                 weight=weights[i],
                 gt_mask=gt_mask[i],
                 lt_mask=lt_mask[i],
@@ -319,7 +323,7 @@ def build_data_from_files(
     splits_col: str | None,
     weight_col: str | None,
     relation_col: str | None,
-    deltaclass: bool,
+    delta_group_col: str | None,
     bounded: bool,
     p_descriptors: PathLike,
     p_atom_feats: dict[int, PathLike],
@@ -327,7 +331,7 @@ def build_data_from_files(
     p_atom_descs: dict[int, PathLike],
     **featurization_kwargs: Mapping,
 ) -> list[list[MoleculeDatapoint] | list[ReactionDatapoint]]:
-    smiss, rxnss, Y, weights, relations, lt_mask, gt_mask = parse_csv(
+    smiss, rxnss, Y, weights, relations, delta_groups, lt_mask, gt_mask = parse_csv(
         p_data,
         smiles_cols,
         rxn_cols,
@@ -336,7 +340,7 @@ def build_data_from_files(
         splits_col,
         weight_col,
         relation_col,
-        deltaclass,
+        delta_group_col,
         bounded,
         no_header_row,
     )
@@ -353,6 +357,7 @@ def build_data_from_files(
         rxnss,
         Y,
         relations,
+        delta_groups,
         weights,
         lt_mask,
         gt_mask,

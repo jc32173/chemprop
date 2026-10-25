@@ -98,6 +98,8 @@ def make_fingerprint_for_model(
         ignore_cols=None,
         splits_col=None,
         weight_col=None,
+        relation_col=None,
+        delta_group_col=None,
         bounded=bounded,
     )
 
@@ -124,7 +126,10 @@ def make_fingerprint_for_model(
     else:
         test_dset = test_dsets[0]
 
-    test_loader = data.build_dataloader(test_dset, args.batch_size, args.num_workers, shuffle=False)
+    test_delta_pairs = None
+    test_loader = data.build_dataloader(test_dset, args.batch_size, args.num_workers, shuffle=False,
+                                        delta=args.delta or args.deltaclass,
+                                        delta_pairs=test_delta_pairs, deltaclass=args.deltaclass)
 
     logger.info(model)
 
@@ -165,7 +170,7 @@ def main(args):
         case _:
             n_components = len(args.smiles_columns) + len(args.reaction_columns)
 
-    multicomponent = n_components > 1
+    multicomponent = (n_components > 1) or args.delta or args.deltaclass
 
     for i, model_path in enumerate(find_models(args.model_paths)):
         logger.info(f"Fingerprints with model {i} at '{model_path}'")
