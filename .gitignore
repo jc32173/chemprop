@@ -176,4 +176,5 @@ chemprop/_version.py
 config.toml
 
 !tests/data/*
+tests/delta_tests/*/*
 !tests/delta_tests/data/*
